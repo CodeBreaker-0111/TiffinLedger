@@ -1,9 +1,1 @@
-import { redirect } from "next/navigation";
-import { getSessionUserId } from "@/lib/auth";
-import Dashboard from "@/components/Dashboard";
-
-export default async function DashboardPage() {
-  const userId = await getSessionUserId();
-  if (!userId) redirect("/login");
-  return <Dashboard />;
-}
+import {redirect} from "next/navigation"; import {getSession} from "@/lib/auth"; import OwnerDashboard from "@/components/OwnerDashboard"; export default async function Page(){const s=await getSession();if(!s||s.role!=="OWNER")redirect("/login");return <OwnerDashboard/>}

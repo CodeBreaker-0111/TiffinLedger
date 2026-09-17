@@ -1,67 +1,61 @@
-# AI Logs
+# AI_LOGS
 
-> This file records the AI-assisted development used for this project. It is intentionally kept focused on development assistance rather than presenting AI output as the author of the project.
+This file records the AI-assisted development work used in this project. It is kept as a development log rather than a marketing description.
 
-## Session 1 — Project requirements
+## Requirements review
 
-**Developer prompt**
+**Developer request**
 
-I need to build a full-stack tiffin billing product. Customers subscribe to a monthly weekday lunch plan, can pause/resume service, and should be billed only for days actually served. The project needs a database, REST APIs, usable UI, authentication, search, pagination/sorting, landing page, README, reasoning notes and AI logs.
+Build a full-stack tiffin owner product where customers subscribe monthly, can pause/resume, and are billed only for days actually served. Include database, REST APIs, UI, authentication, search, landing page, pagination and sorting.
 
-**AI assistance**
+**AI assistance used**
 
-Suggested a simple architecture using Next.js, TypeScript, Prisma and SQLite, with `User`, `Customer`, `PausePeriod` and `Delivery` tables. Recommended making actual delivery records the source for billing rather than only checking the customer's current status.
+Recommended separating `Customer`, `Subscription`, `PausePeriod` and `Delivery`. Billing should use actual delivery records instead of relying only on the current status flag.
 
-## Session 2 — Prisma setup
+## T1 review
 
-**Developer prompt**
+**Developer request**
 
-Prisma says it cannot find the schema.
+Implement the morning notification twist. Evaluation will call `POST /clock` and inspect `/outbox`.
 
-**AI assistance**
+**AI assistance used**
 
-The Prisma schema should be located at:
+Make the clock deterministic with an optional date. On weekdays, select active customers not paused on that date and create an idempotent notification keyed by customer/date.
 
-```text
-prisma/schema.prisma
-```
+## T6 review
 
-Then run:
+**Developer request**
 
-```bash
-npx prisma generate
-npx prisma db push
-```
+Transfer a subscription mid-cycle. The plan and cycle must carry over and billing should split according to which customer was served.
 
-Also verify `DATABASE_URL` exists in `.env`.
+**AI assistance used**
 
-## Session 3 — Billing logic
+Keep the subscription/cycle separate from the customer. Add a transfer history table and never rewrite existing delivery records.
 
-**Developer prompt**
+## T4 review
 
-How should the pro-rated bill work when a customer pauses for a few weekdays?
+**Developer request**
 
-**AI assistance**
+Import messy customer data with duplicate phones, mixed date formats and blanks, with imported/deduped/rejected reporting.
 
-Use the selected month's weekday count as the denominator and actual served weekdays as the numerator:
+**AI assistance used**
 
-```text
-daily rate = monthly plan / weekdays in month
-bill = daily rate × served weekdays
-```
+Normalize common phone formatting, parse several date styles, dedupe against both the uploaded file and database, and return per-line status/reason.
 
-Store delivery records so billing is based on actual service.
+## Customer portal review
 
-## Session 4 — API and UI
+**Developer request**
 
-**Developer prompt**
+Add a customer-facing flow so customers can view status/billing and pause or resume their service.
 
-The evaluation requires REST APIs, authentication, search, pagination and sorting.
+**AI assistance used**
 
-**AI assistance**
+Use role-based sessions, link optional customer accounts to a subscription, and expose customer-scoped endpoints for profile, bill, pause and resume.
 
-Suggested API routes for registration/login, customer CRUD-style operations, pause/resume and bill calculation. Suggested server-side search/filter/sort/pagination to keep the API useful independently of the UI.
+## Debugging note from development
 
-## Developer review
+A previous Prisma setup failed because `schema.prisma` was not at `prisma/schema.prisma`. The final repository keeps that exact path and the README includes the repair commands.
 
-The implementation was reviewed around the core business rule, data ownership, validation and the required evaluation flow. AI suggestions were used as development assistance and were adapted into the project rather than copied as an unexplained generated application.
+## Final review
+
+The implementation was checked against the stated requirements: persistence, REST endpoints, owner and customer authentication, subscription lifecycle, pro-rated billing, search, pagination, sorting, landing page, T1 clock/outbox, T6 transfer and T4 import reporting.

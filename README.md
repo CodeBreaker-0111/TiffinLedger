@@ -1,187 +1,157 @@
 # TiffinLedger
 
-A small full-stack billing app for home-style tiffin/lunch delivery businesses.
+TiffinLedger is a full-stack subscription and billing system for any home-style tiffin/lunch delivery business.
 
-## What it solves
+## Core rule
 
-A customer subscribes to a monthly weekday lunch plan. When the customer pauses service for travel, festivals, etc., those paused weekdays should not be billed.
+A customer gets a monthly weekday lunch plan, can pause/resume service, and is billed only for weekdays actually served.
 
-TiffinLedger stores customers, subscriptions, pause periods and served deliveries. The month-end bill is calculated from actual served weekdays.
+```text
+Daily rate = monthly plan price / planned weekdays in selected month
+Bill = daily rate × actual served weekdays
+```
 
-**Billing formula**
-
-`Daily rate = Monthly plan price / number of weekdays in the selected month`
-
-`Bill = Daily rate × weekdays actually delivered`
-
-Example: ₹3,000 plan / 22 weekdays = ₹136.36/day. If 18 weekdays were served, the bill is ₹2,455 after rounding.
+Saturday and Sunday are not planned delivery days. `Delivery` records are the billing source of truth.
 
 ## Stack
 
-- Next.js App Router + TypeScript
-- Prisma ORM
-- SQLite database for simple real persistence
-- REST API routes
-- bcrypt password hashing
-- HTTP-only JWT session cookie
-- React UI
-
-## Requirements
-
-- Node.js 20+ (Node 24 works)
-- npm
+Next.js App Router + TypeScript · Prisma · SQLite · REST APIs · bcrypt · HTTP-only JWT session cookie.
 
 ## Setup
 
 ```bash
-git clone <your-public-repository-url>
-cd tiffin-billing-app
 npm install
 cp .env.example .env
+npx prisma generate
+npx prisma db push
+npm run db:seed
+npm run dev
 ```
 
-On Windows PowerShell:
+Windows PowerShell:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Set a real `AUTH_SECRET` in `.env`.
-
-Create the database:
-
-```bash
-npx prisma generate
-npx prisma db push
-npm run db:seed
-```
-
-Run:
-
-```bash
-npm run dev
-```
-
 Open `http://localhost:3000`.
 
-Demo login after seeding:
+Demo owner: `owner@tiffin.local` / `demo1234`
 
-- Email: `owner@tiffin.local`
-- Password: `demo1234`
+Demo customer: `priya@tiffin.local` / `demo1234`
 
-## REST API endpoints
+## Endpoints
 
-All customer/billing endpoints require the login session cookie.
+### Auth
 
-### Authentication
+- `POST /api/auth/register` — owner registration
+- `POST /api/auth/login` — owner/customer login
+- `POST /api/auth/logout` — logout
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| POST | `/api/auth/register` | Register owner |
-| POST | `/api/auth/login` | Login owner |
-| POST | `/api/auth/logout` | Logout |
+### Customers & subscriptions
 
-### Customers
-
-| Method | Endpoint | Purpose |
-|---|---|---|
-| GET | `/api/customers?q=&status=&sort=&order=&page=&limit=` | Search, filter, sort and paginate customers |
-| POST | `/api/customers` | Create a subscription/customer |
-| POST | `/api/customers/:id/pause` | Pause a customer |
-| POST | `/api/customers/:id/resume` | Resume a customer |
+- `GET /api/customers?q=&status=&sort=&order=&page=&limit=` — search/filter/sort/paginate
+- `GET /api/customers/:id` — customer details
+- `POST /api/subscriptions` — create a subscription/customer
+- `POST /api/subscriptions/:id/pause` — pause
+- `POST /api/subscriptions/:id/resume` — resume
+- `POST /api/subscriptions/:id/transfer` — T6 mid-cycle transfer
 
 ### Billing
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| GET | `/api/bills/:id?month=YYYY-MM` | Calculate month-end pro-rated bill |
+- `GET /api/bills/:customerId?month=YYYY-MM` — bill for selected month
 
-## Search, pagination and sorting
+### Deliveries
 
-The customer list supports:
+- `GET /api/deliveries?date=YYYY-MM-DD` — active customers and served status
+- `POST /api/deliveries` — mark a day served/not served
 
-- Search by customer name or phone
-- Status filter: ALL / ACTIVE / PAUSED
-- Sorting by name, plan price, status or creation date
-- Ascending/descending order
-- Server-side pagination
+### T1 notification clock
 
-Example:
+- `POST /clock` — deterministic morning processing; accepts `{ "date":"YYYY-MM-DD" }`
+- `POST /api/clock` — same handler
+- `GET /outbox` — notification outbox
+- `GET /api/outbox` — same handler
 
-```text
-GET /api/customers?q=9876&status=ACTIVE&sort=name&order=asc&page=1&limit=8
+`/clock` runs only on weekdays, selects active customers not paused on that date, and writes an idempotent notification per customer/date. Repeating the same clock date does not duplicate outbox rows.
+
+### Customer portal
+
+- `GET /api/customer/me`
+- `GET /api/customer/bill?month=YYYY-MM`
+- `POST /api/customer/pause`
+- `POST /api/customer/resume`
+
+### T4 messy import
+
+- `POST /api/import/customers`
+
+Body:
+
+```json
+{
+  "csv":"name,phone,planPrice,startDate\nRahul,9876543210,3000,01/09/2026\nRahul duplicate,9876543210,3000,2026-09-01"
+}
 ```
 
-## Data model
+Response includes `imported`, `deduped`, `rejected`, `total` and a line-level report. Blank required values are rejected. Duplicate phone numbers are deduped. Common date formats are accepted.
 
-- `User` — owner account
-- `Customer` — subscriber and monthly plan
-- `PausePeriod` — pause/resume history
-- `Delivery` — actual served weekday records
+## T6 transfer
 
-A delivery is unique per customer/date, so duplicate service entries cannot accidentally double-count a day.
+```http
+POST /api/subscriptions/:id/transfer
+Content-Type: application/json
+
+{
+  "toCustomerId":"target-customer-id",
+  "transferDate":"2026-09-17"
+}
+```
+
+The subscription keeps the same plan and cycle. A `SubscriptionTransfer` row preserves the old/new customer and date. Existing delivery rows remain associated with the customer actually served, allowing billing to split by customer.
+
+## UI
+
+- Landing page — product positioning, audience, features and three next features.
+- Owner dashboard — lifecycle actions, search, active/paused/ended status, sorting, pagination, bills, transfer, CSV import and T1 clock/outbox shortcut.
+- Customer portal — own subscription status, bill and pause/resume.
 
 ## Debugging
 
-If Prisma says it cannot find the schema, verify this file exists:
-
-```text
-prisma/schema.prisma
-```
-
-Then run:
+If Prisma cannot find the schema:
 
 ```bash
+ls prisma/schema.prisma
 npx prisma generate
 npx prisma db push
 ```
 
-If the database gets into a bad local state during development:
+For a clean local database during development:
 
 ```bash
-rm prisma/dev.db
-npx prisma db push
+npx prisma db push --force-reset
 npm run db:seed
 ```
 
-PowerShell:
+If login sits on `Please wait…`, inspect the terminal for the API error and browser DevTools → Network → `/api/auth/login`. Restart `npm run dev` after changing `.env`.
 
-```powershell
-Remove-Item prisma/dev.db
-npx prisma db push
-npm run db:seed
-```
+## Evaluation checklist
 
-If login stops working, confirm `.env` contains `AUTH_SECRET`, restart `npm run dev`, and log in again.
-
-## Evaluation flow
-
-1. Register or use the demo owner.
-2. Add a customer with a monthly plan.
-3. Pause the customer.
-4. Resume the customer.
-5. Search by phone/name.
-6. Open **Bill** to see delivered weekdays, daily rate and final amount.
-7. Change status, sorting and page controls.
+1. Landing page.
+2. Owner registration/login.
+3. Add subscription.
+4. Pause/resume.
+5. Search by phone.
+6. Active/paused status.
+7. Sorting + pagination.
+8. Month-end bill.
+9. `POST /clock` then `GET /outbox`.
+10. T6 transfer endpoint.
+11. T4 messy CSV import and report.
+12. Customer login and self-service pause/resume.
 
 ## Three next features
 
-1. WhatsApp bill generation and delivery.
-2. Online payment links and payment tracking.
-3. Delivery-route planning with daily delivery status.
-
-## Project structure
-
-```text
-app/
-  api/
-    auth/
-    bills/
-    customers/
-  dashboard/
-  login/
-  register/
-components/
-lib/
-prisma/
-```
+1. WhatsApp bill delivery.
+2. Online payment links and reconciliation.
+3. Delivery-route planning and driver assignment.

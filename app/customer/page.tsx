@@ -1,0 +1,1 @@
+import {redirect} from "next/navigation"; import {getSession} from "@/lib/auth"; import CustomerPortal from "@/components/CustomerPortal"; export default async function Page(){const s=await getSession();if(!s||s.role!=="CUSTOMER")redirect("/customer/login");return <CustomerPortal/>}

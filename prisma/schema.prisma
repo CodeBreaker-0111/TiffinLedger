@@ -7,58 +7,122 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum CustomerStatus {
+enum UserRole {
+  OWNER
+  CUSTOMER
+}
+
+enum SubscriptionStatus {
   ACTIVE
   PAUSED
+  ENDED
+}
+
+enum OutboxStatus {
+  PENDING
+  SENT
 }
 
 model User {
-  id           String     @id @default(cuid())
-  name         String
-  email        String     @unique
-  passwordHash String
-  createdAt    DateTime   @default(now())
-  customers    Customer[]
+  id              String      @id @default(cuid())
+  name            String
+  email           String      @unique
+  passwordHash    String
+  role            UserRole    @default(OWNER)
+  createdAt       DateTime    @default(now())
+  customers       Customer[]  @relation("OwnerCustomers")
+  customerProfile Customer?   @relation("CustomerAccount")
 }
 
 model Customer {
-  id           String         @id @default(cuid())
-  name         String
-  phone        String         @unique
-  planPrice    Int
-  status       CustomerStatus @default(ACTIVE)
-  subscribedAt DateTime       @default(now())
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-  ownerId      String
-  owner        User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  pauses       PausePeriod[]
-  deliveries   Delivery[]
+  id             String                 @id @default(cuid())
+  ownerId        String
+  accountUserId  String?                @unique
+  name           String
+  phone          String                 @unique
+  email          String?
+  planPrice      Int
+  status         SubscriptionStatus    @default(ACTIVE)
+  subscribedAt   DateTime              @default(now())
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  owner          User                  @relation("OwnerCustomers", fields: [ownerId], references: [id], onDelete: Cascade)
+  accountUser    User?                 @relation("CustomerAccount", fields: [accountUserId], references: [id], onDelete: SetNull)
+  subscriptions  Subscription[]
+  pauses         PausePeriod[]
+  deliveries     Delivery[]
+  notifications  Notification[]
+  transfersFrom  SubscriptionTransfer[] @relation("FromCustomer")
+  transfersTo    SubscriptionTransfer[] @relation("ToCustomer")
 
-  @@index([ownerId])
   @@index([ownerId, status])
   @@index([ownerId, name])
 }
 
+model Subscription {
+  id          String                @id @default(cuid())
+  customerId  String
+  planPrice   Int
+  cycleStart  DateTime
+  cycleEnd    DateTime
+  status      SubscriptionStatus    @default(ACTIVE)
+  createdAt   DateTime              @default(now())
+  customer    Customer              @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  deliveries  Delivery[]
+  transfers   SubscriptionTransfer[]
+
+  @@index([customerId, cycleStart, cycleEnd])
+}
+
 model PausePeriod {
-  id         String   @id @default(cuid())
-  customerId String
-  startDate  DateTime
-  endDate    DateTime?
-  createdAt  DateTime @default(now())
-  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  id             String       @id @default(cuid())
+  customerId     String
+  subscriptionId String?
+  startDate      DateTime
+  endDate        DateTime?
+  createdAt      DateTime     @default(now())
+  customer       Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@index([customerId, startDate])
 }
 
 model Delivery {
-  id         String   @id @default(cuid())
-  customerId String
-  date       DateTime
-  served     Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  id             String       @id @default(cuid())
+  customerId     String
+  subscriptionId String
+  date           DateTime
+  served         Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  customer       Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
 
   @@unique([customerId, date])
-  @@index([customerId, date])
+  @@index([subscriptionId, date])
+}
+
+model SubscriptionTransfer {
+  id             String       @id @default(cuid())
+  subscriptionId String
+  fromCustomerId String
+  toCustomerId   String
+  transferDate   DateTime
+  createdAt      DateTime     @default(now())
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  fromCustomer   Customer     @relation("FromCustomer", fields: [fromCustomerId], references: [id], onDelete: Cascade)
+  toCustomer     Customer     @relation("ToCustomer", fields: [toCustomerId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId, transferDate])
+}
+
+model Notification {
+  id         String        @id @default(cuid())
+  customerId String
+  date       DateTime
+  message    String
+  status     OutboxStatus  @default(PENDING)
+  createdAt  DateTime      @default(now())
+  customer   Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, date])
+  @@index([date, status])
 }

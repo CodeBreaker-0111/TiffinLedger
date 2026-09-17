@@ -1,80 +1,52 @@
-# Reasoning
+# REASONING
 
-## Goal
+## Business invariant
 
-The main requirement is not a generic CRM. The important business rule is:
+The product is built around one invariant: a customer is billed only for service actually delivered.
 
-> A customer must be billed only for weekdays on which the tiffin was actually served.
+## Domain model
 
-I therefore treated subscription, pause/resume and delivery records as first-class data instead of calculating a bill from the customer's current status alone.
+`Customer` represents the person. `Subscription` represents a plan and billing cycle. `PausePeriod` preserves pause history. `Delivery` is the actual service event and drives billing. `SubscriptionTransfer` preserves T6 hand-offs. `Notification` is the T1 outbox.
 
-## Main design decisions
+## Why Delivery is the billing source
 
-### 1. SQLite + Prisma
+An ACTIVE status says the subscription is currently active; it does not prove that lunch was actually served on every historical weekday. Counting served `Delivery` rows avoids charging paused or unserved days and gives an auditable trail.
 
-SQLite keeps the project easy to run in a Codespace without requiring a separate database server. Prisma gives a clear schema and migrations/push workflow.
+## T1
 
-For a production deployment I would move the datasource to PostgreSQL.
+`POST /clock` accepts an explicit date so the evaluator can control the day. The handler rejects weekends, filters active customers, checks pause periods, and creates one notification per customer/date. The unique constraint makes repeated clock calls idempotent.
 
-### 2. Pause history instead of a single pause flag
+## T6
 
-The customer has an `ACTIVE`/`PAUSED` status for the dashboard, but every pause is also stored in `PausePeriod`.
+Transfer moves the current subscription to a new customer and records a transfer history row. The plan price and cycle dates remain unchanged. Existing delivery rows are not rewritten, so the customer who received service keeps the service history used for billing.
 
-That means the system can answer historical questions later, such as when a customer was paused during a particular month.
+## T4
 
-### 3. Delivery records drive billing
+The import path is intentionally report-oriented. Each row becomes imported, deduped, or rejected. Phone numbers are normalized enough for common messy input, duplicate phones are caught within the file and against the DB, and several common date formats are accepted.
 
-The billing function counts `Delivery` rows with `served=true` inside the selected month.
+## Authentication and authorization
 
-This is deliberate. A status such as ACTIVE is not enough to prove that lunch was delivered. Delivery records make the billing rule explicit.
+Passwords are hashed with bcrypt. An HTTP-only JWT cookie identifies the session. Owner routes are scoped by `ownerId`; customer routes are scoped by the linked customer account.
 
-### 4. Weekdays are the planned service days
+## Search/pagination/sorting
 
-The example business says lunch is delivered every weekday. Therefore Saturday and Sunday are excluded from the planned weekday count.
+Search is server-side across name/phone/email. Pagination uses database skip/take. Sorting is restricted to an allow-list.
 
-The formula is:
+## Testing checklist
 
-```text
-monthly price / planned weekdays × delivered weekdays
+Run:
+
+```bash
+npm install
+npx prisma generate
+npx prisma db push
+npm run db:seed
+npm run typecheck
+npm run dev
 ```
 
-The resulting amount is rounded to the nearest rupee.
+Then verify owner registration/login, add subscription, pause/resume, bill, search, sort, pagination, `/clock`, `/outbox`, T6 transfer, T4 import, and customer portal.
 
-### 5. Ownership and authentication
+## Practical production follow-ups
 
-Every customer belongs to a `User`. API routes first resolve the authenticated owner and then scope customer queries to that owner.
-
-Passwords are hashed with bcrypt and the login session is stored in an HTTP-only cookie.
-
-## Testing and fixes
-
-I tested the core flows mentally and through the API/UI structure while building:
-
-1. Registration should reject invalid input.
-2. Duplicate email should return a conflict.
-3. Login should reject a wrong password.
-4. Customer creation validates name, phone and positive plan price.
-5. Duplicate customer phone is rejected.
-6. Pause changes status to `PAUSED`, creates a pause period and removes today's delivery if it was created before pausing.
-7. Resume closes the open pause period and restores today's delivery when today is a weekday.
-8. Billing only uses deliveries belonging to the requested customer and month.
-9. Search checks both name and phone.
-10. Pagination is server-side using `skip` and `take`.
-11. Sorting is restricted to an allow-list rather than accepting an arbitrary database field.
-12. API routes return `401` when the owner session is missing.
-
-## Important edge cases
-
-- A paused customer has no new delivery recorded while paused.
-- A resume on a weekend does not create a delivery.
-- A customer can have multiple pause periods.
-- Duplicate delivery rows are prevented with a composite unique constraint.
-- A month with no weekdays is handled without dividing by zero.
-
-## One practical improvement I would make next
-
-For a real business, I would add an explicit daily delivery screen where the owner can mark each customer as delivered/not delivered. That would make the `Delivery` table a direct representation of the kitchen/delivery operation rather than relying on automatic records.
-
-## AI assistance
-
-AI assistance was used for implementation help, debugging ideas and documentation structure. The final project decisions, business rule interpretation and integration/testing should be reviewed by the developer before submission.
+The local implementation uses SQLite to keep setup simple for a competition/Codespace. Production can move to PostgreSQL, add a real CSV parser for quoted commas, move notification delivery to a queue/provider, and add audit logging/payment reconciliation.

@@ -1,15 +1,1 @@
-import "./globals.css";
-import type { Metadata } from "next";
-
-export const metadata: Metadata = {
-  title: "TiffinLedger — Simple Tiffin Billing",
-  description: "Subscription, pause/resume and pro-rated billing for tiffin services."
-};
-
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return (
-    <html lang="en">
-      <body>{children}</body>
-    </html>
-  );
-}
+import "./globals.css"; import type {Metadata} from "next"; export const metadata:Metadata={title:"TiffinLedger",description:"Tiffin subscription, pause and pro-rated billing."}; export default function Layout({children}:{children:React.ReactNode}){return <html lang="en"><body>{children}</body></html>}

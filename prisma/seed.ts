@@ -4,101 +4,97 @@ import bcrypt from "bcryptjs";
 const prisma = new PrismaClient();
 
 async function main() {
-  const passwordHash = await bcrypt.hash("demo1234", 10);
+  await prisma.notification.deleteMany();
+  await prisma.delivery.deleteMany();
+  await prisma.pausePeriod.deleteMany();
+  await prisma.subscriptionTransfer.deleteMany();
+  await prisma.subscription.deleteMany();
+  await prisma.customer.deleteMany();
+  await prisma.user.deleteMany();
 
-  const owner = await prisma.user.upsert({
-    where: { email: "owner@tiffin.local" },
-    update: {},
-    create: {
-      name: "Tiffin Owner",
+  const owner = await prisma.user.create({
+    data: {
+      name: "Demo Owner",
       email: "owner@tiffin.local",
-      passwordHash
+      passwordHash: await bcrypt.hash("demo1234", 10),
+      role: "OWNER"
     }
   });
 
-  await prisma.customer.deleteMany({ where: { ownerId: owner.id } });
+  const seedCustomers = [
+    { name: "Aarav Sharma", phone: "9876543210", planPrice: 3000 },
+    { name: "Priya Mehta", phone: "9123456780", email: "priya@tiffin.local", planPrice: 2800 },
+    { name: "Rohan Gupta", phone: "9988776655", planPrice: 3200 }
+  ];
 
-  const today = new Date();
-  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-
-  const customers = await Promise.all([
-    prisma.customer.create({
+  const customers = [];
+  for (const item of seedCustomers) {
+    let accountUserId: string | null = null;
+    if (item.email) {
+      const account = await prisma.user.create({
+        data: {
+          name: item.name,
+          email: item.email,
+          passwordHash: await bcrypt.hash("demo1234", 10),
+          role: "CUSTOMER"
+        }
+      });
+      accountUserId = account.id;
+    }
+    customers.push(await prisma.customer.create({
       data: {
         ownerId: owner.id,
-        name: "Aarav Sharma",
-        phone: "9876543210",
-        planPrice: 3000
+        accountUserId,
+        name: item.name,
+        phone: item.phone,
+        email: item.email,
+        planPrice: item.planPrice
       }
-    }),
-    prisma.customer.create({
-      data: {
-        ownerId: owner.id,
-        name: "Priya Mehta",
-        phone: "9123456780",
-        planPrice: 2800
-      }
-    }),
-    prisma.customer.create({
-      data: {
-        ownerId: owner.id,
-        name: "Rohan Gupta",
-        phone: "9988776655",
-        planPrice: 3200,
-        status: "PAUSED"
-      }
-    })
-  ]);
-
-  const weekdays = [];
-  for (let d = 1; d <= today.getDate(); d++) {
-    const date = new Date(today.getFullYear(), today.getMonth(), d);
-    const day = date.getDay();
-    if (day !== 0 && day !== 6) weekdays.push(date);
+    }));
   }
 
-  await prisma.delivery.createMany({
-    data: weekdays.map((date) => ({
-      customerId: customers[0].id,
-      date
-    })),
-    skipDuplicates: true
-  });
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+  const subscriptions = [];
+  for (const customer of customers) {
+    subscriptions.push(await prisma.subscription.create({
+      data: {
+        customerId: customer.id,
+        planPrice: customer.planPrice,
+        cycleStart: start,
+        cycleEnd: end
+      }
+    }));
+  }
 
-  const pauseStart = new Date(today.getFullYear(), today.getMonth(), 10);
-  const pauseEnd = new Date(today.getFullYear(), today.getMonth(), 14);
+  for (let day = 1; day <= now.getDate(); day++) {
+    const date = new Date(now.getFullYear(), now.getMonth(), day);
+    if (date.getDay() === 0 || date.getDay() === 6) continue;
+    for (let i = 0; i < 2; i++) {
+      if (i === 1 && day >= 10 && day <= 14) continue;
+      await prisma.delivery.create({
+        data: {
+          customerId: customers[i].id,
+          subscriptionId: subscriptions[i].id,
+          date
+        }
+      });
+    }
+  }
+
   await prisma.pausePeriod.create({
     data: {
       customerId: customers[1].id,
-      startDate: pauseStart,
-      endDate: pauseEnd
+      subscriptionId: subscriptions[1].id,
+      startDate: new Date(now.getFullYear(), now.getMonth(), 10),
+      endDate: new Date(now.getFullYear(), now.getMonth(), 14)
     }
   });
 
-  await prisma.delivery.createMany({
-    data: weekdays
-      .filter((date) => date < pauseStart || date > pauseEnd)
-      .map((date) => ({ customerId: customers[1].id, date })),
-    skipDuplicates: true
-  });
-
-  await prisma.pausePeriod.create({
-    data: {
-      customerId: customers[2].id,
-      startDate: new Date(today.getFullYear(), today.getMonth(), 5),
-      endDate: null
-    }
-  });
-
-  await prisma.delivery.createMany({
-    data: weekdays
-      .filter((date) => date < new Date(today.getFullYear(), today.getMonth(), 5))
-      .map((date) => ({ customerId: customers[2].id, date })),
-    skipDuplicates: true
-  });
-
-  console.log("Seed complete.");
-  console.log("Login: owner@tiffin.local / demo1234");
-  void monthStart;
+  console.log("Seed complete");
+  console.log("Owner: owner@tiffin.local / demo1234");
+  console.log("Customer: priya@tiffin.local / demo1234");
 }
 
-main().finally(() => prisma.$disconnect());
+main().catch(console.error).finally(() => prisma.$disconnect());
