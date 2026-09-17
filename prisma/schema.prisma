@@ -1,0 +1,64 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum CustomerStatus {
+  ACTIVE
+  PAUSED
+}
+
+model User {
+  id           String     @id @default(cuid())
+  name         String
+  email        String     @unique
+  passwordHash String
+  createdAt    DateTime   @default(now())
+  customers    Customer[]
+}
+
+model Customer {
+  id           String         @id @default(cuid())
+  name         String
+  phone        String         @unique
+  planPrice    Int
+  status       CustomerStatus @default(ACTIVE)
+  subscribedAt DateTime       @default(now())
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  ownerId      String
+  owner        User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  pauses       PausePeriod[]
+  deliveries   Delivery[]
+
+  @@index([ownerId])
+  @@index([ownerId, status])
+  @@index([ownerId, name])
+}
+
+model PausePeriod {
+  id         String   @id @default(cuid())
+  customerId String
+  startDate  DateTime
+  endDate    DateTime?
+  createdAt  DateTime @default(now())
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, startDate])
+}
+
+model Delivery {
+  id         String   @id @default(cuid())
+  customerId String
+  date       DateTime
+  served     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, date])
+  @@index([customerId, date])
+}
